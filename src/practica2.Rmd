@@ -1,0 +1,321 @@
+---
+title: 'TIPOLOGIA I CICLE DE VIDA DE LES DADES: Pràctica 2'
+author: "Joan Cueva Moreno"
+date: '2022-06-06'
+output:
+  pdf_document:  
+    toc: yes
+    toc_depth: 2
+    number_sections: no
+  word_document: 
+    toc: yes
+    toc_depth: 2
+    number_sections: no
+  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Imports
+if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+if (!require('nortest')) install.packages('nortest'); library('nortest')
+if (!require('corrplot')) install.packages('corrplot'); library('corrplot')
+if (!require('C50')) install.packages('C50'); library('C50')
+```
+
+## Apartat 1
+
+*Descripció del dataset. Perquè és important i quina pregunta/problema pretén respondre?*
+
+``` {r}
+# Fem l'import del dataset
+wines = read.csv("winequality-red.csv")
+```
+
+Tenim un dataset amb dades de variants blanques i negres del vi portuguès "Vinho Verde". Mostrem les dades que tenim:
+
+``` {r}
+str(wines)
+```
+
+Com podem veure al dataset i també a la descripció del Kaggle, tenim variables que es corresponen amb inputs com "densitat", "pH" o "alcohol" i una variable output "quality", que es corresponen a una nota del 0 al 10.
+
+Aquest dataset és perfecte per crear un model per predir la qualitat d'un vi en funció de les variables d'input. A més, volem saber quines variables influeixen en que un vi tingui millors notes.
+
+
+## Apartat 2
+
+*Integració i selecció de les dades d’interès a analitzar. Pot ser el resultat d’addicionar diferents datasets o una subselecció útil de les dades originals, en base a l’objectiu que es vulgui aconseguir.*
+
+Per poder fer la creació d'un model per predir la qualitat del vi, a priori ens seran útils totes les variables d'input que tenim, ja que la nota de qualitat la posen els usuaris a aquestes variables.
+
+Més endavant, crearem una nova variable, generarem subsets del dataset o descartarem registres en funció de l'anàlisi que volguem realitzar.
+
+## Apartat 3
+
+*Neteja de les dades.*
+
+### Apartat 3.1
+
+*Les dades contenen zeros o elements buits? Gestiona casacun d'aquests casos.*
+
+Comprovem si tenim cap NA.
+
+``` {r}
+any(is.na(wines))
+```
+
+Comprovem si tenim zeros.
+
+``` {r}
+summary(wines)
+```
+
+Entenem que tenir zeros a la variable "citric.acid" no és un problema.
+
+### Apartat 3.2
+
+*Identifica i gestiona els valors extrems.*
+
+Per comprovar si tenim valors outliers, generarem boxplots que ens permetin identificar els possible valors outliers.
+
+``` {r}
+par(mfrow=c(1, 3))
+boxplot(wines$fixed.acidity, main = "fixed.acidity")
+boxplot(wines$volatile.acidity, main = "volatile.acidity")
+boxplot(wines$citric.acid, main = "citric.acid")
+boxplot(wines$residual.sugar, main = "residual.sugar")
+boxplot(wines$chlorides, main = "chlorides")
+boxplot(wines$free.sulfur.dioxide, main = "free.sulfur.dioxide")
+boxplot(wines$total.sulfur.dioxide, main = "total.sulfur.dioxide")
+boxplot(wines$density, main = "density")
+boxplot(wines$pH, main = "pH")
+boxplot(wines$sulphates, main = "sulphates")
+boxplot(wines$alcohol, main = "alcohol")
+boxplot(wines$quality, main = "quality")
+```
+
+Encara que veient els boxplots odem observar possible valors outliers, considerem que aquests valors estan dins del rang normal de les dades i per tant els tractarem com a dades correctes.
+
+
+## Apartat 4
+
+*Anàlisi de les dades.*
+
+### Apartat 4.1
+
+*Selecció dels grups de dades que es volen analitzar/comparar (p. e., si es volen comparar grups de dades, quins són aquests grups i quins tipus d’anàlisi s’aplicaran?).*
+
+Volem comparar els vins bons dels vins dolents. Fer fer aquesta diferenciació, separarem el dataset per la qualitat, creant una nov variable "category", agafant com a vins bons el que tenen una nota >= 7, normals els que tenen 5-6 i dolents els que tenen nota < 5.
+
+D'aquests dos grups de dades voldrem comparar si les seves propietats són iguals o no, per exemple: si tenen la mateixa graduació alcohólica, densitat, àcid cítric, etc. També voldrem saber quina variable influeix més en la qualitat del vi.
+
+Dividm el dataset amb aquesta nova:
+
+``` {r}
+wines$category = "normal"
+wines$category[wines$quality >= 7] = "good"
+wines$category[wines$quality < 5] = "bad"
+wines$category = as.factor(wines$category)
+```
+
+Visualitzem la distribució de vins que tenim en base a la categoria.
+
+``` {r}
+ggplot(wines, aes(category)) +
+  geom_bar()
+```
+
+Com podem veure, la majoria de casos que ens trobem entren dins de la categoria "normal", tenim uns quants de qualitat "good" i uns pocs de qualitat "bad". Per tant, compararem els normals amb els bons. 
+
+
+### Apartat 4.2
+
+*Comprovació de la normalitat i homogeneïtat de la variància.*
+
+Anem a comprovar la normalitat de les nostres variables. Per això, farem servir un contrast de normalitat, amb el test de Lilliefors.
+
+``` {r}
+lillie.test(wines$fixed.acidity)
+lillie.test(wines$volatile.acidity)
+lillie.test(wines$citric.acid)
+lillie.test(wines$residual.sugar)
+lillie.test(wines$chlorides)
+lillie.test(wines$free.sulfur.dioxide)
+lillie.test(wines$total.sulfur.dioxide)
+lillie.test(wines$density)
+lillie.test(wines$pH)
+lillie.test(wines$sulphates)
+lillie.test(wines$alcohol)
+lillie.test(wines$quality)
+```
+
+Aquells casos en que el p-value és inferior a 0.05, podem descartar que segueixen una distribució normal. Per aquest cas, veiem que cap de les variables segueix una distribució normal.
+
+Per comprovar l'homogeneïtat de la variància, ho farem entre els grups de vins "normals" i "bons", i ho comprovarem per totes les variables d'input (que es corresponen amb la descripció del vi).
+
+Per fer aquesta comprovació, farem servir el test de Fligner-Killeen.
+
+``` {r}
+fligner.test(fixed.acidity ~ category, data = wines[wines$category != "bad",])
+fligner.test(volatile.acidity ~ category, data = wines[wines$category != "bad",])
+fligner.test(citric.acid ~ category, data = wines[wines$category != "bad",])
+fligner.test(residual.sugar ~ category, data = wines[wines$category != "bad",])
+fligner.test(chlorides ~ category, data = wines[wines$category != "bad",])
+fligner.test(free.sulfur.dioxide ~ category, data = wines[wines$category != "bad",])
+fligner.test(total.sulfur.dioxide ~ category, data = wines[wines$category != "bad",])
+fligner.test(density ~ category, data = wines[wines$category != "bad",])
+fligner.test(pH ~ category, data = wines[wines$category != "bad",])
+fligner.test(sulphates ~ category, data = wines[wines$category != "bad",])
+fligner.test(alcohol ~ category, data = wines[wines$category != "bad",])
+```
+
+En aquest cas, veiem més varietat de resultats. Les columnes "citric.acid", "chlorides", "pH", "sulphates" i "alcohol", podem dir que tenen variàncies homogènies. Per tota la resta de variables, ho podem descartar.
+
+
+### Apartat 4.3
+
+*Aplicació de proves estadístiques per comparar els grups de dades. En funció de les dades i de l’objectiu de l’estudi, aplicar proves de contrast d’hipòtesis, correlacions, regressions, etc. Aplicar almenys tres mètodes d’anàlisi diferents.*
+
+Priemr volem comprovar quines variables tenen més influència a la qualitat del vi. Per això, crearem una matriu de correlació per fixar-nos en les correlacions entre les variables descriptives i la variable depenent "quality".
+
+``` {r}
+res = cor(wines[,c(1:(ncol(wines)-1))], method = "pearson", use = "complete.obs")
+corrplot(res)
+
+res["quality",]
+```
+
+A primer vista, veiem que per la qualitat, les variables que més influeixen són la "volatile.acidity", que té una correlació negativa, i les "alcohol" i "sulphates", que tenen una correlació positiva. Notem però que cap variable té una correlació amb la qualitat ingerior al -0.5 o superior al 0.5, per tant són correlacions bastant fluixes.
+
+
+La segona prova que farem és comprovar si els vins de categoria "bona" tenen més alcohol que els de categoria "normal", com sembla que s'intueix de les correlacions.
+
+Per això, farem un contrast d'hipòtesis entre dos subgrups, els vins de qualitat "normal" i els de qualitat "good". Això ho podem fer perquè tenim una mostra de tamany significatiu.
+
+La nostra hipòtesi nul·la serà:
+
+- H0: µ1 - µ2 = 0
+
+La hipòtesi alternativa serà:
+
+- H1: µ1 - µ2 > 0
+
+On µ1 denota la mitjana d'alcohol als vins "good" i µ2 la mitjana d'alcohol als vins "normal".
+
+Separem els dos grups.
+
+``` {r}
+alcohol.normal = wines$alcohol[wines$category == "normal"]
+mean(alcohol.normal)
+alcohol.good = wines$alcohol[wines$category == "good"]
+mean(alcohol.good)
+```
+
+Visualitzant la mitjana dels dos subgrups, no sembla que hi hagi una gran diferència, però ho comprovarem amb el contrast d'hipòtesis.
+
+Comprovem primer si la variància entre els dos subgrups és igual o diferent.
+
+``` {r}
+var.test(alcohol.normal, alcohol.good)
+```
+
+Com que el p-value >= 0.05, no podem descartar l'hipòtesis nul·la i podem dir que tenen igual variància.
+
+Apliquem el nostre test per comprovar si les mitjanes són iguals pels dos grups.
+
+``` {r}
+t.test(alcohol.good, alcohol.normal, alternative="greater", var.equal=TRUE)
+```
+
+Com que el p-value és inferior a 0.05, podem rebutjar la hipòtesi nul·la a favor de l'alternativa i concloure que l'alcohol dels vins bons és superior al dels vins normals.
+
+
+Per últim, volem crear un model per predir la qualitat d'un vi en funció dels paràmetres d'input, com hem dit a l'inici de la pràctica. Per això, generarem un arbre de decissió que ens permeti predir el valor de l'etiqueta "category" en funció de les variables d'entrada. Treurem els vins dolents perquè tenim molt poques mostres. També hem de treure l'atribut "quality", ja que "category" és una tribut que hem creat a partir d'aquesta variable descriptiva.
+
+Primer de tot, dividirem el nostre dataset en subconjunts de train i de test.
+
+``` {r}
+# Tamany del dataset de train
+train_size = floor(0.75 * nrow(wines[wines$category != "bad",]))
+
+# Agafem els indexs que aniran a test, descartant els vins de categoria "dolenta"
+set.seed(100)
+train_ind = sample(seq_len(nrow(wines[wines$category != "bad",])), size = train_size)
+
+# Dividim els datasets
+train <- wines[wines$category != "bad",][train_ind, ]
+test <- wines[wines$category != "bad",][-train_ind, ]
+
+X_train = train[, c(1:11)]
+X_test = test[, c(1:11)]
+
+Y_train = train[, "category"]
+Y_test = test[, "category"]
+```
+
+Ara que tenim els nostres subsets, fem la creació del model.
+
+``` {r}
+tree = C5.0(X_train, Y_train, rules=TRUE)
+summary(tree)
+```
+
+Podem veure que els atributs que més es fan servir per trobar el valor de la categoria són "alcohol", "sulphates", "total.sulfur.dioxide" i "volatile.acidity", molt semblant als atributs amb més correlació amb la qualitat.
+
+Ara comprovarem la precissió general de l'arbre i crearem una matriu de confussió per veure-ho amb més detall. 
+
+``` {r}
+predicted_model = predict(tree, X_test, type="class")
+print(sprintf("La precissió de l'arbre és de %.4f %%", 100*sum(predicted_model == Y_test) / length(predicted_model)))
+```
+Podem comprovar que la precissió global de l'arbre es d'un 86.98%, una precissió molt bona.
+
+``` {r}
+mat_conf = table(Y_test, Predicted=predicted_model)
+mat_conf
+```
+
+No obstant, amb la matriu de confusió veuem que els vins "good" no sempre els classifiquem bé. De fet, tenim més errors que encerts classificant vins bons. Per tant, el nostre model té un biaix a classificar vins com a "normal". Això és en part pel gran volum de dades que tenim de vins "normal" al nostre dataset.
+
+
+## Apartat 5
+
+*Representació dels resultats a partir de taules i gràfiques. Aquest apartat es pot respondre al llarg de la pràctica, sense la necessitat de concentrar totes les representacions en aquest punt de la pràctica.*
+
+Aquest apartat l'hem anat responent al llarg de la pràctica. Aprofitarem que ja hem acabat els anàlisis per fer el output del dataset amb els tractaments.
+
+``` {r}
+write.csv(wines, "winequality-red-final.csv")
+```
+
+
+## Apartat 6
+
+*Resolució del problema. A partir dels resultats obtinguts, quines són les conclusions? Els resultats permeten respondre al problema?*
+
+Amb els anàlisis que hem realitzat, podem concloure que els principals atributs per definir la qualitat del vi són "alcohol", "sulphates" i "volatile.acidity". Això ho hem pogut comprovant visualitzant les correlacions entre les variables descriptives amb la variable depenent "quality".
+
+Hem creat una variable nova "category" a partir de la qualitat del vi, per realitzar més anàlisis.
+
+Hem pogut comprovar també que els vins bons tenen una mitjana superior als vins normals, realitzant un test de contrats d'hipòtesis sobre la mitjana de dues mostres independents amv variància desconeguda i diferent.
+
+Hem pogut crear un model per fer prediccions de la categoria del vi, encara que aquest té una mica de biaix a classificar-los com a "normals" degut al propi biaix del dataset. El model que hem fet servir per aquesta predicció és un Decission Tree.
+
+
+\begin{center}
+\begin{tabular}{ |c | c | }  
+  \hline
+  Investigació prèvia & JCM \\ 
+  \hline
+  Redacció de les respostes & JCM \\ 
+  \hline
+  Desenvolupament codi & JCM \\ 
+  \hline
+\end{tabular}
+\end{center}
+
+
+
+
